@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PapaSense | Monitoreo de Humedad AFC - Papa Désirée Chile</title>
+  <meta name="description" content="Sistema de monitoreo de humedad de suelo para cultivo de papa Désirée en Agricultura Familiar Campesina (AFC) en Chile">
+  <meta name="theme-color" content="#1b4332">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  
+  <!-- Google Fonts: Plus Jakarta Sans for high-readability rural UI -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Chart.js for smooth agronomic moisture trends -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            display: ['"Space Grotesk"', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              200: '#bbf7d0',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+              950: '#052e16',
+            },
+            soil: {
+              light: '#8d6e63',
+              DEFAULT: '#5d4037',
+              dark: '#3e2723',
+            },
+            crop: {
+              dry: '#f59e0b',       // Ámbar alerta
+              optimal: '#10b981',   // Verde esmeralda óptimo
+              saturated: '#0284c7', // Azul saturación
+            }
+          },
+          boxShadow: {
+            'card': '0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.03)',
+            'glow-optimal': '0 0 35px -5px rgba(16, 185, 129, 0.4)',
+            'glow-dry': '0 0 35px -5px rgba(245, 158, 11, 0.4)',
+            'glow-saturated': '0 0 35px -5px rgba(2, 132, 199, 0.4)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-stone-100 text-stone-800 antialiased min-h-screen flex flex-col font-sans select-none pb-24 md:pb-8">
+
+  <!-- Mobile App Frame Container (Centered max-w-md on desktop for realistic mobile simulation) -->
+  <div class="w-full max-w-md mx-auto min-h-screen bg-stone-50 shadow-2xl relative flex flex-col border-x border-stone-200/60">
+
+    <!-- Top App Bar / Header -->
+    <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-stone-200/80 px-4 py-3 transition-all">
+      <div class="flex items-center justify-between">
+        <!-- Logo & Title -->
+        <div class="flex items-center space-x-2.5">
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-brand-800 to-brand-600 flex items-center justify-center shadow-md shadow-brand-900/10 text-white flex-shrink-0">
+            <i data-lucide="sprout" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-1.5">
+              <h1 class="text-base font-extrabold tracking-tight text-stone-900">PapaSense</h1>
+              <span class="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-full bg-brand-100 text-brand-800 border border-brand-200">AFC</span>
+            </div>
+            <p class="text-[11px] text-stone-500 font-medium flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Prototipo T-6 • Chile
+            </p>
+          </div>
+        </div>
+
+        <!-- Connection & Maintenance Quick Pills -->
+        <div class="flex items-center space-x-1.5">
+          <!-- Maintenance Alert Pill (Hidden by default, shown when maintenance required) -->
+          <button id="topMaintBadge" onclick="openModal('deviceModal')" title="Ver Alertas de Mantención"
+            class="hidden items-center gap-1 px-2 py-1 rounded-xl text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-bounce">
+            <i data-lucide="wrench" class="w-3 h-3"></i>
+            <span>Mantención</span>
+          </button>
+
+          <!-- Connection Status Button -->
+          <button id="btnConnectionStatus" onclick="openModal('deviceModal')" title="Estado de Dispositivo y Conexión"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 transition active:scale-95 border border-stone-200/60">
+            <span id="connStatusDot" class="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span id="connStatusText">Demo</span>
+          </button>
+
+          <!-- Settings Button -->
+          <button onclick="openModal('settingsModal')" title="Ajustes y Parámetros Agronómicos"
+            class="p-2 rounded-xl text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition active:scale-95">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Context Bar: Crop Stage & Solar Telemetry -->
+      <div class="mt-2.5 pt-2 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-600 font-medium">
+        <div class="flex items-center gap-1.5">
+          <i data-lucide="map-pin" class="w-3.5 h-3.5 text-stone-400"></i>
+          <span class="font-bold text-stone-800">Papa cv. Désirée (Zona Sur)</span>
+        </div>
+        <!-- Solar Energy Indicator -->
+        <button onclick="openModal('deviceModal')" class="flex items-center gap-1 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-0.5 rounded-md text-amber-800 font-bold transition text-[10px]">
+          <span id="topSolarDot" class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+          <span id="topSolarText">☀️ Solar 5V | 84% ⚡</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Fluctuation / Anomaly / Maintenance Warning Banner (Dynamic) -->
+    <div id="alertBanner" class="hidden transition-all duration-300 mx-4 mt-3 rounded-2xl p-3.5 border shadow-sm flex items-start gap-3">
+      <div id="alertBannerIcon" class="mt-0.5 p-1.5 rounded-xl bg-white/80">
+        <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600"></i>
+      </div>
+      <div class="flex-1">
+        <h4 id="alertBannerTitle" class="text-xs font-bold leading-tight">Alerta de Fluctuación</h4>
+        <p id="alertBannerMsg" class="text-[11px] mt-0.5 leading-snug">Se detectó una variación atípica de humedad.</p>
+      </div>
+      <button onclick="dismissAlertBanner()" class="text-stone-400 hover:text-stone-600 p-1">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+
+    <!-- Main Content Body (Scrollable) -->
+    <main class="flex-1 px-4 py-4 space-y-4">
+
+      <!-- HERO: Main Moisture Gauge Card -->
+      <section class="bg-white rounded-3xl p-5 shadow-card border border-stone-200/60 relative overflow-hidden transition-all duration-500" id="heroCard">
+        <!-- Background Ambient Gradient Tint -->
+        <div id="heroBgGlow" class="absolute -right-16 -top-16 w-52 h-52 rounded-full bg-emerald-100/60 blur-3xl pointer-events-none transition-all duration-700"></div>
+
+        <div class="flex justify-between items-start relative z-10">
+          <div>
+            <span class="text-[11px] font-bold tracking-wider uppercase text-stone-400">Humedad en Suelo Franco</span>
+            <div class="flex items-baseline gap-1 mt-0.5">
+              <span id="moistureValue" class="text-6xl font-extrabold tracking-tight font-display text-stone-900 transition-all duration-500">72</span>
+              <span class="text-2xl font-bold text-stone-400 font-display">%</span>
+            </div>
+          </div>
+
+          <!-- Moisture State Badge -->
+          <div id="statusBadge" class="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm transition-all duration-300">
+            <span id="statusIndicatorDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span id="statusBadgeText" class="text-xs font-black uppercase tracking-wider">ÓPTIMO</span>
+          </div>
+        </div>
+
+        <!-- Interactive Gauge Graphic -->
+        <div class="my-5 flex flex-col items-center justify-center relative">
+          <!-- Circular Progress SVG -->
+          <div class="relative w-48 h-48 flex items-center justify-center">
+            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 160 160">
+              <!-- Background Ring Track -->
+              <circle cx="80" cy="80" r="66" stroke="currentColor" stroke-width="14" fill="transparent" class="text-stone-100" />
+              <!-- Optimal Range Visual Zone Marker (60% to 80%) -->
+              <circle cx="80" cy="80" r="66" stroke="currentColor" stroke-width="14" fill="transparent" 
+                stroke-dasharray="82.9 331.7" stroke-dashoffset="-248.8" class="text-emerald-100/80" />
+              <!-- Progress Indicator Bar -->
+              <circle id="gaugeProgressRing" cx="80" cy="80" r="66" stroke="currentColor" stroke-width="14" fill="transparent"
+                stroke-dasharray="414.69" stroke-dashoffset="116" stroke-linecap="round"
+                class="text-emerald-500 transition-all duration-700 ease-out" />
+            </svg>
+
+            <!-- Center Plant Stage & Micro Status -->
+            <div class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+              <div id="plantVisualIconContainer" class="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-1 text-emerald-600 transition-all duration-500 shadow-inner">
+                <i id="plantVisualIcon" data-lucide="flower-2" class="w-8 h-8"></i>
+              </div>
+              <span id="soilTensionText" class="text-[11px] font-semibold text-stone-500">Capacidad de Campo</span>
+              <span id="rawAdcText" class="text-[9px] text-stone-400 font-mono">ADC: 480 | LCD: 16x2</span>
+            </div>
+          </div>
+
+          <!-- Color Bar Range Scale Legend -->
+          <div class="w-full mt-2 pt-2 border-t border-stone-100">
+            <div class="flex justify-between text-[10px] font-bold text-stone-400 mb-1">
+              <span class="text-amber-700">0% Seco</span>
+              <span class="text-emerald-700">60% - 80% Rango Óptimo Désirée</span>
+              <span class="text-sky-700">100% Sat.</span>
+            </div>
+            <div class="h-2 w-full rounded-full bg-gradient-to-r from-amber-400 via-emerald-500 to-sky-500 p-0.5">
+              <div id="rangePointer" class="w-2.5 h-2.5 rounded-full bg-white shadow-md border-2 border-stone-800 -mt-0.5 transition-all duration-500" style="margin-left: 72%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Specs Grid (Energía & Autonomía) -->
+        <div class="pt-3 border-t border-stone-100 flex justify-center">
+          <div class="bg-stone-50/90 rounded-2xl py-2 px-6 border border-stone-100 flex items-center justify-center gap-2">
+            <i data-lucide="battery-charging" class="w-4 h-4 text-amber-500"></i>
+            <span class="text-xs text-stone-500 font-semibold">Batería:</span>
+            <span id="batteryStatusMini" class="text-base font-extrabold text-amber-600">84%</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- AGRONOMIC ACTION CARD: Manejo Hídrico y Recomendación Técnica Centrada -->
+      <section id="recommendationCard" class="rounded-3xl p-5 bg-gradient-to-br from-emerald-800 to-brand-950 text-white shadow-lg shadow-emerald-950/20 relative overflow-hidden transition-all duration-300 text-center flex flex-col items-center">
+        <!-- Badge superior centrado -->
+        <div class="mb-2">
+          <span class="text-[10px] uppercase tracking-wider font-extrabold text-emerald-300 bg-white/10 px-3 py-1 rounded-full inline-block">
+            Manejo Hídrico • cv. Désirée
+          </span>
+        </div>
+
+        <!-- Icono centrado -->
+        <div id="recIconWrapper" class="p-3 rounded-2xl bg-white/10 backdrop-blur-md text-emerald-300 my-1">
+          <i id="recIcon" data-lucide="check-circle" class="w-7 h-7"></i>
+        </div>
+
+        <!-- Título y descripción centrados -->
+        <h3 id="recTitle" class="text-base font-extrabold mt-1 text-white leading-snug max-w-xs">
+          Suelo en condiciones ideales
+        </h3>
+        <p id="recDescription" class="text-xs text-emerald-100/90 mt-1.5 leading-relaxed max-w-sm">
+          La humedad actual (72%) está en la franja óptima de capacidad de campo. La papa Désirée acumula almidón de manera uniforme sin riesgo de sarna común ni asfixia radicular.
+        </p>
+
+        <!-- Prescription Grid: Centrado -->
+        <div class="w-full mt-3.5 pt-3 border-t border-white/10">
+          <div class="grid grid-cols-2 gap-2.5 text-xs max-w-xs mx-auto">
+            <div class="bg-black/20 backdrop-blur-xs rounded-xl p-2.5 border border-white/10 flex flex-col items-center">
+              <span class="text-[10px] text-emerald-200 font-semibold flex items-center gap-1">
+                <i data-lucide="clock" class="w-3 h-3"></i> Tiempo Sugerido
+              </span>
+              <span id="irrigationDuration" class="font-extrabold text-sm block mt-1">1 hora</span>
+            </div>
+            <div class="bg-black/20 backdrop-blur-xs rounded-xl p-2.5 border border-white/10 flex flex-col items-center">
+              <span class="text-[10px] text-emerald-200 font-semibold flex items-center gap-1">
+                <i data-lucide="gauge" class="w-3 h-3"></i> Intensidad
+              </span>
+              <span id="irrigationIntensity" class="font-extrabold text-sm block mt-1">6-10 L/h</span>
+            </div>
+          </div>
+
+          <div class="mt-3 flex justify-center">
+            <button onclick="recordIrrigationAction()" class="text-xs font-bold px-4 py-2 rounded-xl bg-white text-emerald-950 hover:bg-emerald-50 active:scale-95 transition shadow-sm">
+              Registrar Aplicación de Riego
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- HISTORICAL TRENDS: Gráfico interactivo y registros -->
+      <section class="bg-white rounded-3xl p-5 shadow-card border border-stone-200/60">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-sm font-extrabold text-stone-900 tracking-tight">Historial de Humedad</h2>
+            <p class="text-[11px] text-stone-400">Tendencia y fluctuaciones en caballón</p>
+          </div>
+          <!-- Time Range Selector -->
+          <div class="flex bg-stone-100 p-0.5 rounded-xl text-[11px] font-semibold text-stone-600">
+            <button onclick="setTimeRange('6h')" id="btnRange6h" class="px-2.5 py-1 rounded-lg bg-white shadow-xs text-stone-900 transition">6h</button>
+            <button onclick="setTimeRange('24h')" id="btnRange24h" class="px-2.5 py-1 rounded-lg hover:text-stone-900 transition">24h</button>
+            <button onclick="setTimeRange('7d')" id="btnRange7d" class="px-2.5 py-1 rounded-lg hover:text-stone-900 transition">7d</button>
+          </div>
+        </div>
+
+        <!-- Chart Container -->
+        <div class="relative h-44 w-full">
+          <canvas id="moistureChart"></canvas>
+        </div>
+
+        <!-- Chart Reference Guide -->
+        <div class="mt-3 flex items-center justify-center gap-4 text-[10px] text-stone-500 font-medium">
+          <span class="flex items-center gap-1.5">
+            <span class="w-2.5 h-1.5 rounded-full bg-emerald-500"></span> Óptimo (60-80%)
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="w-2.5 h-1.5 rounded-full bg-amber-500"></span> Seco (<60%)
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="w-2.5 h-1.5 rounded-full bg-sky-500"></span> Saturado (>80%)
+          </span>
+        </div>
+
+        <!-- Recent Logs Accordion / Table -->
+        <div class="mt-4 pt-3 border-t border-stone-100">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-stone-700">Últimos Eventos Registrados</span>
+            <button onclick="exportHistoryCSV()" class="text-[11px] font-bold text-brand-700 hover:text-brand-800 flex items-center gap-1">
+              <i data-lucide="download" class="w-3 h-3"></i> Exportar CSV
+            </button>
+          </div>
+
+          <div id="logListContainer" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+            <!-- Dynamically populated via JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- INFORMACIÓN TÉCNICA Y GUÍA AGRONÓMICA DESPLEGABLE -->
+      <section class="bg-white rounded-3xl p-4 shadow-card border border-stone-200/60" id="guiaIniaSection">
+        <details class="group" open>
+          <summary class="flex items-center justify-between cursor-pointer list-none">
+            <div class="flex items-center gap-2.5">
+              <div class="p-2 rounded-xl bg-brand-50 text-brand-700">
+                <i data-lucide="book-open" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <h4 class="text-xs font-bold text-stone-900">Información Técnica: Cultivo Papa cv. Désirée</h4>
+                <p class="text-[11px] text-stone-400">Guía práctica de manejo, suelo y fuentes INIA / FAO / FIA</p>
+              </div>
+            </div>
+            <i data-lucide="chevron-down" class="w-4 h-4 text-stone-400 group-open:rotate-180 transition-transform"></i>
+          </summary>
+          
+          <div class="mt-3 pt-3 border-t border-stone-100 text-xs text-stone-600 space-y-2.5 leading-relaxed">
+            <!-- Pautas Prácticas para el Productor -->
+            <div class="bg-stone-50 p-2.5 rounded-xl border border-stone-200/60">
+              <span class="font-bold text-stone-800 block mb-0.5">🥔 Manejo Práctico y Requerimientos Hídricos</span>
+              Variedad semitardía (130-150 días), piel roja y pulpa amarilla, fundamental en la AFC de la zona centro-sur chilena (Maule a Los Lagos). Requiere entre <strong>450 y 550 mm</strong> de agua acumulada por ciclo. La etapa de <strong>tuberización y llenado de tubérculos</strong> es la más sensible: cualquier estrés en este periodo merma el calibre y peso final.
+            </div>
+
+            <!-- Acciones Resolutivas Claras -->
+            <div class="bg-stone-50 p-2.5 rounded-xl border border-stone-200/60">
+              <span class="font-bold text-stone-800 block mb-0.5">📋 Pautas de Acción según Estado de Humedad</span>
+              <ul class="list-disc list-inside space-y-1 text-[11px] mt-1 text-stone-600">
+                <li><strong>Suelo Seco (&lt;60%):</strong> Aplicar riego programado de 1 hora con intensidad de 6-10 L/h. Si se posterga, se favorece el agrietamiento del tubérculo y la sarna común.</li>
+                <li><strong>Suelo Óptimo (60% - 80%):</strong> Suelo a capacidad de campo. Mantener válvulas cerradas; no sobreirrigar para ahorrar agua y permitir aireación natural.</li>
+                <li><strong>Suelo Saturado (&gt;80%):</strong> Suspender todo riego. Esperar de 48 a 72 horas sin aplicar agua y realizar aporques o remover levemente los camellones para airear el suelo y prevenir pudriciones radiculares y tizón tardío.</li>
+              </ul>
+            </div>
+
+            <!-- Fisiología Crítica y Riesgos Sanitarios -->
+            <div class="bg-amber-50/70 p-2.5 rounded-xl border border-amber-200/70 text-amber-950">
+              <span class="font-bold block mb-0.5">⚠️ Riesgos Fitosanitarios Críticos</span>
+              <ul class="list-disc list-inside space-y-1 text-[11px] text-amber-900">
+                <li><strong>Déficit hídrico prolongado:</strong> Induce <em>Sarna Común (Streptomyces scabies)</em>, afectando severamente la calidad cosmética y comercial del tubérculo.</li>
+                <li><strong>Exceso de humedad y encharque:</strong> Dispara la proliferación de <em>Tizón Tardío (Phytophthora infestans)</em> y la asfixia radicular, reduciendo el rendimiento hasta en un 80%.</li>
+              </ul>
+            </div>
+
+            <!-- Fuentes Oficiales Validadas -->
+            <div class="bg-brand-50/70 p-3 rounded-2xl border border-brand-200 space-y-2 text-[11px]">
+              <span class="font-bold text-brand-900 block flex items-center gap-1.5">
+                <i data-lucide="shield-check" class="w-4 h-4 text-brand-700"></i>
+                Fuentes Oficiales e Institucionales Validadas
+              </span>
+              
+              <div class="space-y-1.5 text-stone-700">
+                <p>
+                  <strong>1. INIA Chile:</strong> Boletín Técnico N° 343 <em>"Manejo del Riego y Fertirriego en el Cultivo de la Papa"</em> (Tapia & Alfaro, INIA Remehue / La Platina) y <em>Manual del Cultivo de Papa cv. Desirée</em> (INIA Carillanca).
+                  <a href="https://www.inia.cl" target="_blank" class="text-brand-700 font-bold underline block mt-0.5">www.inia.cl (Instituto de Investigaciones Agropecuarias)</a>
+                </p>
+                <p>
+                  <strong>2. FAO (Naciones Unidas):</strong> <em>Irrigation and Drainage Paper N° 56 "Crop Evapotranspiration"</em> (Allen et al., Coeficientes Kc papa = 0.5 a 1.15) y Paper N° 33 <em>"Yield Response to Water"</em>.
+                  <a href="https://www.fao.org/land-water/databases-and-software/cropwat" target="_blank" class="text-brand-700 font-bold underline block mt-0.5">FAO Land & Water: Guidelines for Computing Crop Water</a>
+                </p>
+                <p>
+                  <strong>3. FIA Chile:</strong> <em>Catálogo de Prácticas para la Eficiencia Hídrica en la Agricultura Familiar Campesina (AFC)</em>, Ministerio de Agricultura.
+                  <a href="https://www.fia.cl" target="_blank" class="text-brand-700 font-bold underline block mt-0.5">www.fia.cl (Fundación para la Innovación Agraria)</a>
+                </p>
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- EXPERIMENTAL PROTOTYPE CONTROLS: SIMULADOR INTERACTIVO PARA EVALUACIÓN -->
+      <section class="bg-gradient-to-r from-stone-900 to-stone-800 rounded-3xl p-4.5 text-white shadow-xl">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <h3 class="text-xs font-black uppercase tracking-wider text-stone-200">Panel de Prueba / Prototipo</h3>
+          </div>
+          <span class="text-[10px] bg-stone-700/80 text-stone-300 px-2 py-0.5 rounded-md font-mono">Modo Demo</span>
+        </div>
+        <p class="text-[11px] text-stone-300 leading-snug mb-3">
+          Simula el comportamiento agronómico, la autonomía del panel solar 5V 1W y las alertas de mantención:
+        </p>
+
+        <!-- Presets Buttons -->
+        <div class="grid grid-cols-4 gap-1.5 mb-3 text-center">
+          <button onclick="setSimulatedMoisture(32)" class="px-2 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 text-[11px] font-bold text-amber-300 active:scale-95 transition">
+            Seco (32%)
+          </button>
+          <button onclick="setSimulatedMoisture(54)" class="px-2 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 text-[11px] font-bold text-amber-300 active:scale-95 transition">
+            Alerta (54%)
+          </button>
+          <button onclick="setSimulatedMoisture(72)" class="px-2 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/40 text-[11px] font-bold text-emerald-300 active:scale-95 transition">
+            Óptimo (72%)
+          </button>
+          <button onclick="setSimulatedMoisture(92)" class="px-2 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/40 border border-sky-500/40 text-[11px] font-bold text-sky-300 active:scale-95 transition">
+            Saturado (92%)
+          </button>
+        </div>
+
+        <!-- Manual Slider -->
+        <div class="space-y-1">
+          <div class="flex justify-between text-[11px] text-stone-400 font-medium">
+            <span>Ajuste Manual:</span>
+            <span id="sliderValDisplay" class="font-bold text-white">72%</span>
+          </div>
+          <input type="range" id="simSlider" min="0" max="100" value="72" oninput="onSliderChange(this.value)"
+            class="w-full h-2 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+        </div>
+
+        <!-- Fluctuation Events -->
+        <div class="mt-3 pt-2.5 border-t border-stone-700/80 flex items-center justify-between text-[10px] text-stone-400">
+          <span>Fluctuación:</span>
+          <button onclick="simulateRapidDrop()" class="text-amber-300 hover:text-amber-200 font-bold underline">
+            Desecación Súbita
+          </button>
+          <button onclick="simulateRainSurge()" class="text-sky-300 hover:text-sky-200 font-bold underline">
+            Lluvia Intensa
+          </button>
+        </div>
+
+        <!-- NEW: Solar & Maintenance Simulation Triggers -->
+        <div class="mt-3 pt-2.5 border-t border-stone-700/80 space-y-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Pruebas de Energía y Mantención:</span>
+          <div class="grid grid-cols-2 gap-1.5 text-[10px]">
+            <button onclick="simulateSolarState(true)" class="py-1.5 px-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 text-amber-200 font-bold">
+              ☀️ Sol Pleno (Carga 5V)
+            </button>
+            <button onclick="simulateSolarState(false)" class="py-1.5 px-2 rounded-xl bg-stone-700 hover:bg-stone-600 text-stone-300 font-bold">
+              🌙 Noche (Uso Batería)
+            </button>
+            <button onclick="simulateBatteryDegradation()" class="py-1.5 px-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/40 text-rose-300 font-bold">
+              ⚠️ Alerta Batería Baja
+            </button>
+            <button onclick="simulateBluetoothIssue()" class="py-1.5 px-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/40 border border-blue-500/40 text-blue-300 font-bold">
+              📡 Alerta Bluetooth HC-05
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- NEW REDESIGNED BOTTOM MOBILE NAVIGATION BAR: NO COLLISIONS, EXCELLENT VISIBILITY -->
+    <nav class="fixed md:sticky bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-stone-200 z-30 px-2 py-1.5">
+      <div class="grid grid-cols-4 gap-1 items-center text-center">
+        
+        <!-- Tab 1: Monitoreo -->
+        <button onclick="setActiveTab('monitor')" id="navMonitor" class="nav-item-btn text-brand-700 font-bold">
+          <i data-lucide="activity" class="w-4 h-4 mb-0.5"></i>
+          <span class="text-[10px] truncate leading-tight">Monitor</span>
+        </button>
+
+        <!-- Tab 2: Registros / Historial -->
+        <button onclick="openModal('historyModal')" class="nav-item-btn text-stone-500 hover:text-stone-800">
+          <i data-lucide="history" class="w-4 h-4 mb-0.5"></i>
+          <span class="text-[10px] truncate leading-tight">Registros</span>
+        </button>
+
+        <!-- Tab 3: Arduino & Energía (Panel Solar 5V 1W + Batería Li-Ion) -->
+        <button onclick="openModal('deviceModal')" id="navDeviceBtn" class="nav-item-btn bg-stone-50 hover:bg-amber-50/70 border border-stone-200/80 rounded-xl py-1 text-stone-700">
+          <div class="flex items-center justify-center gap-1">
+            <span id="navBatIconContainer">
+              <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500 fill-amber-500"></i>
+            </span>
+            <span id="navBatPctText" class="font-black text-[11px] text-stone-900 leading-none">84%</span>
+          </div>
+          <span id="navSolarStatusSubtext" class="text-[9px] font-bold text-amber-700 truncate leading-tight mt-0.5">
+            ☀️ Solar 5V
+          </span>
+        </button>
+
+        <!-- Tab 4: Prototipo / Proyecto T-6 -->
+        <button onclick="openModal('aboutModal')" class="nav-item-btn text-stone-500 hover:text-stone-800">
+          <i data-lucide="layers" class="w-4 h-4 mb-0.5"></i>
+          <span class="text-[10px] truncate leading-tight">Prototipo</span>
+        </button>
+
+      </div>
+    </nav>
+
+  </div>
+
+  <!-- MODAL: DISPOSITIVO, ENERGÍA SOLAR & MANTENCIÓN PREVENTIVA -->
+  <div id="deviceModal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between pb-3 border-b border-stone-100 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <div class="p-2 rounded-xl bg-amber-50 text-amber-700">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-stone-900">Dispositivo y Autonomía</h3>
+            <p class="text-[11px] text-stone-400">Arduino Uno • Panel Solar 5V 1W</p>
+          </div>
+        </div>
+        <button onclick="closeModal('deviceModal')" class="text-stone-400 hover:text-stone-600 p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="py-3.5 space-y-3.5 text-xs overflow-y-auto flex-1 pr-1">
+        
+        <!-- Card 1: Sistema de Batería y Panel Solar -->
+        <div class="bg-stone-50 rounded-2xl p-3.5 border border-stone-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-extrabold text-stone-800 flex items-center gap-1.5">
+              <i data-lucide="sun" class="w-4 h-4 text-amber-500"></i> Panel Solar 5V 1W
+            </span>
+            <span id="modalSolarTag" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+              ☀️ Generación Activa
+            </span>
+          </div>
+
+          <div class="bg-white p-2.5 rounded-xl border border-stone-100 flex items-center justify-between text-xs">
+            <span class="text-stone-500 font-semibold">Tensión Solar Fotovoltaica:</span>
+            <span id="modalSolarV" class="font-bold text-stone-800">4.95 V</span>
+          </div>
+
+          <!-- Battery Gauge -->
+          <div class="pt-2 border-t border-stone-200/80">
+            <div class="flex justify-between items-center mb-1 text-[11px]">
+              <span class="font-bold text-stone-700 flex items-center gap-1">
+                <i data-lucide="battery" class="w-3.5 h-3.5 text-stone-500"></i> Batería Li-Ion 18650
+              </span>
+              <span id="modalBatPctVal" class="font-extrabold text-amber-700">84%</span>
+            </div>
+            <div class="w-full h-2.5 bg-stone-200 rounded-full overflow-hidden">
+              <div id="modalBatBar" class="h-full bg-amber-500 transition-all duration-500" style="width: 84%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Diagnóstico y Alertas de Mantención Inteligente -->
+        <div class="bg-stone-50 rounded-2xl p-3.5 border border-stone-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-extrabold text-stone-800 flex items-center gap-1.5">
+              <i data-lucide="wrench" class="w-4 h-4 text-stone-600"></i> Estado de Mantención
+            </span>
+            <span id="diagMaintBadge" class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+              Buen Estado
+            </span>
+          </div>
+
+          <div class="space-y-1.5 text-[11px]">
+            <div class="flex items-center justify-between p-2 rounded-xl bg-white border border-stone-100">
+              <span>Salud de Batería (SOH):</span>
+              <span id="diagBatteryHealth" class="font-bold text-emerald-600">94% (Óptimo)</span>
+            </div>
+            <div class="flex items-center justify-between p-2 rounded-xl bg-white border border-stone-100">
+              <span>Módulo Bluetooth HC-05:</span>
+              <span id="diagBtSignal" class="font-bold text-emerald-600">Operativo</span>
+            </div>
+            <div class="flex items-center justify-between p-2 rounded-xl bg-white border border-stone-100">
+              <span>Sonda FC-28 (D7 Pulso):</span>
+              <span id="diagSensorStatus" class="font-bold text-emerald-600">Operativa (Sin sulfatación)</span>
+            </div>
+          </div>
+
+          <!-- Caja de Alerta Resolutiva si requiere mantención -->
+          <div id="maintenanceAlertBox" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs space-y-1">
+            <div class="flex items-center gap-1.5 font-bold text-rose-800">
+              <i data-lucide="alert-octagon" class="w-4 h-4 text-rose-600"></i>
+              <span>Acción Requerida:</span>
+            </div>
+            <p id="maintenanceAlertMsg" class="text-[11px] leading-relaxed">
+              Revise las pilas, limpie la superficie del panel solar de polvo o tierra, y de ser necesario reemplace las pilas 18650.
+            </p>
+          </div>
+        </div>
+
+        <!-- Card 3: Especificaciones Técnicas (Lista de componentes) -->
+        <div class="bg-stone-50 rounded-2xl p-3.5 border border-stone-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-extrabold text-stone-800 flex items-center gap-1.5">
+              <i data-lucide="cpu" class="w-4 h-4 text-brand-700"></i> Especificaciones Técnicas
+            </span>
+            <span class="text-[9px] font-bold bg-stone-200 text-stone-700 px-2 py-0.5 rounded-full">
+              Componentes del Prototipo
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+            <div class="p-2 rounded-xl bg-white border border-stone-200/80 font-bold text-stone-800 flex items-center gap-1.5">
+              <span>🔹</span> Arduino UNO R3
+            </div>
+            <div class="p-2 rounded-xl bg-white border border-stone-200/80 font-bold text-stone-800 flex items-center gap-1.5">
+              <span>🔹</span> Sensor de Humedad FC-28
+            </div>
+            <div class="p-2 rounded-xl bg-white border border-stone-200/80 font-bold text-stone-800 flex items-center gap-1.5">
+              <span>🔹</span> Pantalla LCD 16x2 I2C
+            </div>
+            <div class="p-2 rounded-xl bg-white border border-stone-200/80 font-bold text-stone-800 flex items-center gap-1.5">
+              <span>🔹</span> Módulo Bluetooth HC-05
+            </div>
+            <div class="p-2 rounded-xl bg-white border border-stone-200/80 font-bold text-stone-800 flex items-center gap-1.5">
+              <span>🔹</span> Batería Li-Ion 18650
+            </div>
+            <div class="p-2 rounded-xl bg-white border border-stone-200/80 font-bold text-stone-800 flex items-center gap-1.5">
+              <span>🔹</span> Panel Solar 5V 1W
+            </div>
+            <div class="p-2 rounded-xl bg-white border border-stone-200/80 font-bold text-stone-800 flex items-center gap-1.5 col-span-2">
+              <span>🔹</span> Módulo de Carga TP4056 con Protección
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 4: Conexión Bluetooth HC-05 / Cable USB Serial -->
+        <div class="bg-stone-50 rounded-2xl p-3.5 border border-stone-200 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="font-extrabold text-stone-800 block flex items-center gap-1.5">
+              <i data-lucide="radio" class="w-4 h-4 text-blue-600"></i> Conexión en Tiempo Real
+            </span>
+            <span id="serialSupportBadge" class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+              Web Serial / Bluetooth
+            </span>
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-bold text-stone-500 mb-1">Medio de Transmisión</label>
+            <select id="connModeSelect" onchange="toggleConnMode(this.value)" class="w-full bg-white border border-stone-200 rounded-xl px-2.5 py-1.5 text-stone-800 font-bold text-xs">
+              <option value="bluetooth" selected>Inalámbrico: Módulo Bluetooth HC-05 (COM saliente)</option>
+              <option value="serial">Por Cable: Cable USB Directo a PC (COM Arduino Uno)</option>
+              <option value="demo">Modo Demostración / Simulación (Sin Dispositivo)</option>
+            </select>
+          </div>
+
+          <!-- Botón de Conexión en Vivo -->
+          <div class="p-3 rounded-xl bg-white border border-blue-200/80 space-y-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <strong class="text-stone-900 block text-xs" id="connActionTitle">Vincular Dispositivo</strong>
+                <span class="text-[10px] text-stone-500" id="connActionSub">Seleccione el puerto COM de su Arduino o HC-05</span>
+              </div>
+              <button id="btnConnectSerial" onclick="handleBluetoothButtonClick()" class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition">
+                <i data-lucide="power" class="w-3.5 h-3.5"></i>
+                <span id="btnSerialText">Conectar Ahora</span>
+              </button>
+            </div>
+            <div id="serialStatusBanner" class="text-[11px] text-stone-600 bg-stone-50 p-2 rounded-lg border border-stone-100 flex items-center justify-between">
+              <span>Estado:</span>
+              <span id="serialStatusText" class="font-bold text-stone-500">Desconectado</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="pt-3 border-t border-stone-100 flex gap-2 flex-shrink-0">
+        <button onclick="saveConnectionSettings()" class="w-full py-2.5 rounded-xl bg-brand-700 hover:bg-brand-800 text-white font-bold text-xs shadow-sm active:scale-95 transition">
+          Guardar Ajustes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: HISTORIAL COMPLETO DE REGISTROS -->
+  <div id="historyModal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+      <div class="flex items-center justify-between pb-3 border-b border-stone-100 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <div class="p-2 rounded-xl bg-brand-50 text-brand-700">
+            <i data-lucide="history" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-stone-900">Historial de Registros</h3>
+            <p class="text-[11px] text-stone-400">Trazabilidad de humedad y riego</p>
+          </div>
+        </div>
+        <button onclick="closeModal('historyModal')" class="text-stone-400 hover:text-stone-600 p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="py-3 flex-1 overflow-y-auto space-y-2 pr-1">
+        <div class="flex items-center justify-between text-xs text-stone-500 pb-1 border-b border-stone-100">
+          <span>Total lecturas: <strong id="totalLogsCount" class="text-stone-800">10</strong></span>
+          <button onclick="exportHistoryCSV()" class="text-brand-700 font-bold hover:underline flex items-center gap-1">
+            <i data-lucide="download" class="w-3 h-3"></i> Exportar CSV
+          </button>
+        </div>
+        <div id="modalLogListContainer" class="space-y-1.5 text-xs">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-stone-100 flex-shrink-0 flex gap-2">
+        <button onclick="closeModal('historyModal')" class="w-full py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs transition">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AJUSTES AGRONÓMICOS (SUELO Y UMBRALES) -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200">
+      <div class="flex items-center justify-between pb-3 border-b border-stone-100">
+        <div class="flex items-center gap-2">
+          <div class="p-2 rounded-xl bg-stone-100 text-stone-700">
+            <i data-lucide="sliders" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-stone-900">Parámetros de Cultivo</h3>
+            <p class="text-[11px] text-stone-400">Calibración agronómica para papa</p>
+          </div>
+        </div>
+        <button onclick="closeModal('settingsModal')" class="text-stone-400 hover:text-stone-600 p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="py-4 space-y-3.5 text-xs">
+        <div>
+          <label class="block font-semibold text-stone-700 mb-1">Textura del Suelo (AFC)</label>
+          <select id="soilTextureSelect" onchange="updateSoilTextureThresholds(this.value)" class="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-800">
+            <option value="franco" selected>Franco / Franco-Arenoso (Ideal Papa)</option>
+            <option value="arcilloso">Arcilloso (Mayor retención, riesgo encharque)</option>
+            <option value="arenoso">Arenoso (Drenaje rápido, requiere riegos cortos)</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block font-semibold text-stone-600 mb-1">Umbral Seco (%)</label>
+            <input type="number" id="dryThresholdInput" value="60" class="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-800 font-bold">
+          </div>
+          <div>
+            <label class="block font-semibold text-stone-600 mb-1">Umbral Saturado (%)</label>
+            <input type="number" id="satThresholdInput" value="80" class="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-stone-800 font-bold">
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2">
+          <div>
+            <span class="block font-semibold text-stone-800">Sonido de Notificación</span>
+            <span class="text-[10px] text-stone-400">Aviso audible al campesino</span>
+          </div>
+          <input type="checkbox" id="soundToggle" checked class="w-4 h-4 accent-brand-600 rounded">
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-stone-100 flex gap-2">
+        <button onclick="saveAgronomicSettings()" class="w-full py-2.5 rounded-xl bg-brand-700 hover:bg-brand-800 text-white font-bold text-xs shadow-sm active:scale-95 transition">
+          Guardar Parámetros
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: INFORMACIÓN DEL PROTOTIPO Y PROYECTO DE DISEÑO INDUSTRIAL -->
+  <div id="aboutModal" class="hidden fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between pb-3 border-b border-stone-100 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <div class="p-2 rounded-xl bg-brand-50 text-brand-700">
+            <i data-lucide="layers" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-stone-900">Proyecto PapaSense T-6</h3>
+            <p class="text-[11px] text-stone-400">Diseño Industrial • Prototipo Experimental</p>
+          </div>
+        </div>
+        <button onclick="closeModal('aboutModal')" class="text-stone-400 hover:text-stone-600 p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="py-3.5 space-y-3.5 text-xs text-stone-600 leading-relaxed overflow-y-auto flex-1 pr-1">
+        <p>
+          <strong>PapaSense</strong> es un prototipo experimental de <strong>Diseño Industrial</strong> orientado a la <strong>Agricultura Familiar Campesina (AFC)</strong> en Chile, concebido para tecnificar y optimizar el uso del agua en el cultivo de la papa cv. Désirée.
+        </p>
+
+        <!-- Pilares del Proyecto -->
+        <div class="bg-stone-50 p-3 rounded-2xl border border-stone-200 space-y-2">
+          <span class="font-extrabold text-stone-800 block text-xs">Pilares del Diseño Industrial:</span>
+          
+          <div class="space-y-1.5 text-[11px]">
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-brand-600 mt-1 flex-shrink-0"></span>
+              <div>
+                <strong>Accesibilidad y Baja Carga Cognitiva:</strong> Semáforo cromático universal de 3 estados (Seco, Óptimo, Saturado) y lectura clara a pleno sol.
+              </div>
+            </div>
+            
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1 flex-shrink-0"></span>
+              <div>
+                <strong>Autonomía Rural (Panel Solar 5V 1W):</strong> Sistema auto-recargable mediante energía fotovoltaica para parcelas sin red eléctrica.
+              </div>
+            </div>
+
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-sky-500 mt-1 flex-shrink-0"></span>
+              <div>
+                <strong>Diseño Circular y Reparabilidad:</strong> Componentes electrónicos modulares y de bajo costo que el propio agricultor puede reparar o sustituir.
+              </div>
+            </div>
+
+            <div class="flex items-start gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-600 mt-1 flex-shrink-0"></span>
+              <div>
+                <strong>Innovación Anti-Electrólisis:</strong> Ciclo de alimentación pulsada en el pin D7 que previene la corrosión galvánica de los electrodos FC-28.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-brand-50/70 p-3 rounded-2xl border border-brand-200 text-[11px] text-stone-700">
+          <strong class="text-brand-900 block mb-1">Caso de Estudio: Papa cv. Désirée en Chile</strong>
+          Validado con criterios agronómicos del <strong>INIA Chile</strong> (Boletín N° 343) y la <strong>FAO</strong> (Paper 56), prescribiendo riego con tiempo exacto (40 min) e intensidad (4.5 mm/h) para evitar la sarna común y el tizón tardío.
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-stone-100 flex-shrink-0">
+        <button onclick="closeModal('aboutModal')" class="w-full py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs transition">
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio Tone for Push Alert Sound -->
+  <audio id="alertAudio" preload="auto">
+    <source src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU..." type="audio/wav">
+  </audio>
+
+  <!-- App Main Logic Script -->
+  <script src="app.js"></script>
+</body>
+</html>

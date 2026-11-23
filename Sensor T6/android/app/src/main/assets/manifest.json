@@ -1,0 +1,17 @@
+{
+  "name": "PapaSense - Monitoreo Humedad Papa",
+  "short_name": "PapaSense",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#1b4332",
+  "theme_color": "#1b4332",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
